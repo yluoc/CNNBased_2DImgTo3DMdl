@@ -1,0 +1,6 @@
+webcolors==24.60
+numpy==1.26.4
+PIL==10.4.0
+matplotlib==3.9.1
+trimesh==4.4.3
+tensorflow==2.17.0
