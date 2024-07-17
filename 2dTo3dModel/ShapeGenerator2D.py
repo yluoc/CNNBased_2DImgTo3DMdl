@@ -35,7 +35,9 @@ def get_color_name(rgb_tuple):
         color_name = closest_color(rgb_tuple)
     return color_name
 
-def triangle_generator(base_length, height, img_filepath,shape_color_RGB):
+def triangle_generator(base_length, height, img_filepath, shape_color_RGB):
+    base_length = int(base_length)
+    height = int(height)
     shape_color_name = get_color_name(shape_color_RGB)
     img = Image.new('RGBA', (base_length, height), (255, 255, 255, 0))
     img_draw = ImageDraw.Draw(img)
@@ -45,7 +47,8 @@ def triangle_generator(base_length, height, img_filepath,shape_color_RGB):
 
     return shape_color_name
 
-def square_generator(side_length, img_filepath,shape_color_RGB):
+def square_generator(side_length, img_filepath, shape_color_RGB):
+    side_length = int(side_length)
     shape_color_name = get_color_name(shape_color_RGB)
     img = Image.new('RGBA', (side_length, side_length), (255, 255, 255, 0))
     img_draw = ImageDraw.Draw(img)
@@ -55,7 +58,8 @@ def square_generator(side_length, img_filepath,shape_color_RGB):
 
     return shape_color_name
 
-def circle_generator(diameter, img_filepath,shape_color_RGB):
+def circle_generator(diameter, img_filepath, shape_color_RGB):
+    diameter = int(diameter)
     shape_color_name = get_color_name(shape_color_RGB)
     img = Image.new('RGBA', (diameter, diameter), (255, 255, 255, 0))
     img_draw = ImageDraw.Draw(img)
@@ -74,29 +78,29 @@ def save_to_csv(img_filepath, csv_filepath, shape_color_name, shape_type):
 
         writer.writerow([img_filepath, shape_type, shape_color_name])
 
-def image_generator(img_num, color_rgb):
+def image_generator(img_num):
     n = img_num
     output_dir = 'shapes2d'
     os.makedirs(output_dir, exist_ok=True)
     csv_filepath = os.path.join(output_dir, 'shape_colors.csv')
-    shape_color_RGB = color_rgb
 
     for i in range(n):
+        shape_color_RGB = random_color_tuple()
+
         base_length, height = random.randint(50, 200), random.randint(50, 100)
         side_length = random.randint(50, 200)
         diameter = random.randint(50, 200)
 
         img_filepath1 = os.path.join(output_dir, f"triangle_{i}.png")
-        shape_color_name = triangle_generator(base_length, height, img_filepath1, shape_color_RGB)
+        shape_color_name1 = triangle_generator(base_length, height, img_filepath1, shape_color_RGB)
     
         img_filepath2 = os.path.join(output_dir, f"square_{i}.png")
-        shape_color_name = square_generator(side_length, img_filepath2, shape_color_RGB)
+        shape_color_name2 = square_generator(side_length, img_filepath2, shape_color_RGB)
         
         img_filepath3 = os.path.join(output_dir, f"circle_{i}.png")
-        shape_color_name = circle_generator(diameter, img_filepath3, shape_color_RGB)
+        shape_color_name3 = circle_generator(diameter, img_filepath3, shape_color_RGB)
         
-        save_to_csv(img_filepath1, csv_filepath, shape_color_name, "triangle")
-        save_to_csv(img_filepath2, csv_filepath, shape_color_name, "square")
-        save_to_csv(img_filepath3, csv_filepath, shape_color_name, "circle")
+        save_to_csv(img_filepath1, csv_filepath, shape_color_name1, "triangle")
+        save_to_csv(img_filepath2, csv_filepath, shape_color_name2, "square")
+        save_to_csv(img_filepath3, csv_filepath, shape_color_name3, "circle")
 
-#image_generator(10, random_color_tuple())
