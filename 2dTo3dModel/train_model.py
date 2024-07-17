@@ -1,77 +1,88 @@
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'  # Reduce TensorFlow logging verbosity
 
-import time
-import threading
 import numpy as np
-from cnnModel import *
 import tensorflow as tf
-from pynput import keyboard
+from tensorflow.keras.losses import MeanSquaredError
+from tensorflow.keras.callbacks import ModelCheckpoint, ReduceLROnPlateau
+from tensorflow.keras import mixed_precision
+from cnnModel import cnnModel
 from dataPreprocess import dataPreprocess
 
-class train_model:
-    def __init__(self, img_path, mdl_path, obj_num=0):
+class TrainModel:
+    def __init__(self, img_path, mdl_path, obj_num):
         self.data_preprocess = dataPreprocess(img_path, mdl_path, obj_num)
-        self.checkpoint_path = "training_checkpoints/cp-{epoch:04d}.weights.h5"
-        self.checkpoint_dir = os.path.dirname(self.checkpoint_path)
-        self.model_save_path = "trained_model/model_{epoch:04d}.keras"
-        self.model_save_dir = os.path.dirname(self.model_save_path)
-        self.pause_flag = False
-        self.pause_status = False
-        self.stop_status = False
         self.model = None
-    
-    def keyboard_monitor(self):
-        def on_press(key):
-            try:
-                if key.char == 's':
-                    self.pause_status = not self.pause_status
 
-                    if self.pause_status:
-                        if not self.pause_flag:
-                            print("\nTraining paused. Press 's' to resume.")
-                            self.pause_flag = True
-                        else:
-                            print("\nTraining resumed")
-                            self.pause_flag = False
-                
-                elif key.char == 'e':
-                    self.stop_status = True
-                    print("\nTraining stopped and model saved.")
-            except AttributeError:
-                pass
-        
-        with keyboard.Listener(on_press=on_press) as listener:
-            listener.join()
-    
-    def save_model(self, epoch):
-        model_save_path = self.model_save_path.format(epoch=epoch)
-        model_dir = os.path.dirname(model_save_path)
-        if not os.path.exists(model_dir):
-            os.makedirs(model_dir)
-        self.model.save(model_save_path)
+        # Check for GPU and set mixed precision policy if available
+        physical_devices = tf.config.list_physical_devices('GPU')
+        if physical_devices:
+            try:
+                for device in physical_devices:
+                    tf.config.experimental.set_memory_growth(device, True)
+                policy = mixed_precision.Policy('mixed_float16')
+                mixed_precision.set_global_policy(policy)
+                print("Mixed precision policy set.")
+            except Exception as e:
+                print(f"Error setting mixed precision policy: {e}")
+        else:
+            print("No compatible GPU found. Running on CPU.")
+
+    def load_obj(self, filename):
+        vertices = []
+        with open(filename, 'r') as file:
+            for line in file:
+                if line.startswith('v '):
+                    parts = line.split()
+                    vertices.append([float(parts[1]), float(parts[2]), float(parts[3])])
+        return np.array(vertices)
 
     def prepare_data(self):
         mapped_dataset = self.data_preprocess.shape_model_match()
         
         x_train, y_train = [], []
         for match in mapped_dataset:
-            img_filepath, mdl_filepath, _, _, _ = match
+            img_filepath, mdl_filepath, _, _ = match
 
             img = self.data_preprocess.image_preprocess(img_filepath)
-            model = self.data_preprocess.model_preprocess(mdl_filepath)
-
+            model = self.load_obj(mdl_filepath)
+            print(mdl_filepath, img_filepath)
+            
             if img is not None and model is not None:
                 x_train.append(img)
                 y_train.append(model)
+            else:
+                print(f"Skipping pair: {img_filepath}, {mdl_filepath}")
 
         x_train = np.array(x_train)
-        y_train = np.array(y_train)
+        y_train = np.array(y_train, dtype=object)
         
-        return x_train, y_train
+        # Ensure all y_train entries have the same shape
+        max_vertices = max(len(vertices) for vertices in y_train)
+        y_train_padded = np.zeros((len(y_train), max_vertices, 3))
+        for i, vertices in enumerate(y_train):
+            y_train_padded[i, :len(vertices), :] = vertices
 
-    # adjust epoches, batch_size, validation_split, patience as needed
-    def trainModel(self, epochs=100, batch_size=128, validation_split=0.2):
+        # Flatten y_train_padded to match the model's output shape
+        y_train_flattened = y_train_padded.reshape((len(y_train_padded), -1))
+
+        return x_train, y_train_flattened
+
+    def similarity_percentage(self, y_true, y_pred):
+        criterion = MeanSquaredError()
+        mse = criterion(y_true, y_pred).numpy()
+        max_mse = np.mean(y_true ** 2)
+        similarity = (1 - mse / max_mse) * 100
+        return max(0, similarity)
+
+    def create_dataset(self, x, y, batch_size):
+        dataset = tf.data.Dataset.from_tensor_slices((x, y))
+        dataset = dataset.shuffle(buffer_size=1024)
+        dataset = dataset.batch(batch_size)
+        dataset = dataset.prefetch(buffer_size=tf.data.experimental.AUTOTUNE)
+        return dataset
+
+    def train_model(self, epochs=10000, batch_size=256):
         x_train, y_train = self.prepare_data()
 
         if len(x_train) == 0 or len(y_train) == 0:
@@ -79,71 +90,56 @@ class train_model:
             return
 
         img_height, img_width, channels = x_train.shape[1], x_train.shape[2], x_train.shape[3]
-        output_vertices = y_train.shape[1]
+        output_vertices = y_train.shape[1] // 3
 
         self.model = cnnModel(img_height, img_width, channels, output_vertices).model
-
-        latest_checkpoint = tf.train.latest_checkpoint(self.checkpoint_dir)
-        if latest_checkpoint:
-            self.model.load_weights(latest_checkpoint)
-            print(f"Loaded weights from checkpoint: {latest_checkpoint}")
-
+        self.model.compile(optimizer='adam', loss='mean_squared_error')
         self.model.summary()
 
-        checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
-            filepath = self.checkpoint_path,
-            save_weights_only = True,
-            save_freq = 'epoch',
-            verbose = 1
-        )
-
-        early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+        checkpoint_callback = ModelCheckpoint(filepath='./cnn_model_epoch.weights.h5', save_best_only=True, monitor='loss', mode='min', save_weights_only=True)
+        reduce_lr = ReduceLROnPlateau(monitor='loss', factor=0.1, patience=5, min_lr=1e-6, verbose=1)
         
-        key_monitor_thread = threading.Thread(target=self.keyboard_monitor)
-        key_monitor_thread.daemon = True
-        key_monitor_thread.start()
+        class SimilarityCallback(tf.keras.callbacks.Callback):
+            def __init__(self, train_model_instance, x_train, y_train, batch_size=128):
+                super().__init__()
+                self.train_model_instance = train_model_instance
+                self.x_train = x_train
+                self.y_train = y_train
+                self.batch_size = batch_size
+            
+            def on_epoch_end(self, epoch, logs=None):
+                similarity = 0
+                num_batches = max(1, len(self.x_train) // self.batch_size)
+                for i in range(num_batches):
+                    batch_x = self.x_train[i * self.batch_size:(i + 1) * self.batch_size]
+                    batch_y = self.y_train[i * self.batch_size:(i + 1) * self.batch_size]
+                    y_pred = self.model.predict(batch_x)
+                    similarity += self.train_model_instance.similarity_percentage(batch_y, y_pred)
+                similarity /= num_batches
+                print(f"Epoch {epoch+1}: Similarity = {similarity:.6f}%")
+
+        train_dataset = self.create_dataset(x_train, y_train, batch_size)
 
         print("Starting training...")
-        try:
-            for epoch in range(epochs):
-                if self.stop_status:
-                    break
-
-                print(f"\nEpoch {epoch + 1}/{epochs}")
-                
-                while self.pause_status:
-                    if not self.pause_flag:
-                        print("\nTraining paused. Press 's' to resume.")
-                        self.pause_flag = True
-                    time.sleep(1)
-                
-                if self.pause_status:
-                    continue
-
-                self.model.fit(
-                    x_train, y_train,
-                    epochs = 1,
-                    batch_size = batch_size,
-                    validation_split = validation_split,
-                    callbacks = [checkpoint_callback, early_stopping]
-                )
-                self.save_model(epoch)
-                 
-        except KeyboardInterrupt:
-            print("\nTraining interrupted. Saving current state...")
-            self.model.save_weights(self.checkpoint_path.format(epoch=epoch))
-            print("Model state saved")
-
+        self.model.fit(train_dataset, epochs=epochs, callbacks=[SimilarityCallback(self, x_train, y_train, batch_size=batch_size), checkpoint_callback, reduce_lr])
         print("Training complete.")
+
+        self.save_model()
     
-# for testing purpose
+    def save_model(self):
+        if self.model:
+            self.model.save('./cnn_model_final.keras', save_format='tf')  # Save the model in TensorFlow SavedModel format
+            print("Model saved to './cnn_model_final.keras'")
+
+"""
 def main():
     img_path = './shapes2d'
     mdl_path = './shapes3d'
-    obj_num = 10
+    obj_num = 100
 
-    trainer = train_model(img_path, mdl_path, obj_num)
-    trainer.trainModel()
+    trainer = TrainModel(img_path, mdl_path, obj_num)
+    trainer.train_model()
 
 if __name__ == "__main__":
     main()
+"""
