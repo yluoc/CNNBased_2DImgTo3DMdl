@@ -6,7 +6,7 @@ from PIL import Image
 import matplotlib.colors as mcolors
 import trimesh
 import numpy as np
-
+import ShapeGenerator2D
 colors = mcolors.CSS4_COLORS
 
 def random_color_tuple():
@@ -125,34 +125,51 @@ def save_to_csv(img_filepath, csv_filepath, shape_color_name, shape_type):
 
         writer.writerow([img_filepath, shape_type, shape_color_name])
 
-def model_generator(mdl_num, color_rgb):
+def model_generator(mdl_num):
     n = mdl_num
-    output_dir = 'shapes3d'
-    os.makedirs(output_dir, exist_ok=True)
-    csv_filepath = os.path.join(output_dir, 'shape_colors.csv')
-    shape_color_RGB = color_rgb
+    output_dir1 = 'shapes3d'
+    output_dir2 = 'shapes2d'
+    os.makedirs(output_dir1, exist_ok=True)
+    os.makedirs(output_dir2, exist_ok=True)
+    csv_filepath = 'shape_colors.csv'
+    
 
     for i in range(n):
+        shape_color_RGB = random_color_tuple()
         base_length, height = random.randint(50, 200), random.randint(50, 100)
         side_length = random.randint(50, 200)
         diameter = random.randint(50, 200)
 
-        texture_filepath = os.path.join(output_dir, f"texture_{i}.png")
+        texture_filepath = os.path.join(output_dir2, f"texture_{i}.png")
         create_texture_image(texture_filepath, shape_color_RGB)
 
         shape_color_name = get_color_name(shape_color_RGB)
-        shape_type = 'pyramid'
-        obj_filepath = os.path.join(output_dir, f"pyramid_{i}.obj")
+        
+        # Draw and save pyramid
+        png_filepath = os.path.join(output_dir2, f"triangle_{i}.png")
+        ShapeGenerator2D.triangle_generator(base_length,height, png_filepath, shape_color_RGB)
+        ShapeGenerator2D.save_to_csv(png_filepath, csv_filepath, shape_color_name, 'triangle')
+
+        obj_filepath = os.path.join(output_dir1, f"pyramid_{i}.obj")
         draw_pyramid(base_length, height, obj_filepath, texture_filepath, shape_color_RGB)
-        shape_type = 'pyramid'
-        save_to_csv(obj_filepath, csv_filepath, shape_color_name, shape_type)
+        save_to_csv(obj_filepath, csv_filepath, shape_color_name, 'pyramid')
         
-        obj_filepath = os.path.join(output_dir, f"cube_{i}.obj")
+        # Draw and save cube
+        png_filepath = os.path.join(output_dir2, f"square_{i}.png")
+        ShapeGenerator2D.square_generator(side_length, png_filepath, shape_color_RGB)
+        ShapeGenerator2D.save_to_csv(png_filepath, csv_filepath, shape_color_name, 'square')
+
+        obj_filepath = os.path.join(output_dir1, f"cube_{i}.obj")
         draw_cube(side_length, obj_filepath, texture_filepath, shape_color_RGB)
-        shape_type = 'cube'
-        save_to_csv(obj_filepath, csv_filepath, shape_color_name, shape_type)
+        save_to_csv(obj_filepath, csv_filepath, shape_color_name, 'cube')
         
-        obj_filepath = os.path.join(output_dir, f"sphere_{i}.obj")
+        # Draw and save sphere
+        png_filepath = os.path.join(output_dir2, f"circle_{i}.png")
+        ShapeGenerator2D.circle_generator(diameter, png_filepath, shape_color_RGB)
+        ShapeGenerator2D.save_to_csv(png_filepath, csv_filepath, shape_color_name, 'circle')
+
+        obj_filepath = os.path.join(output_dir1, f"sphere_{i}.obj")
         draw_sphere(diameter, obj_filepath, texture_filepath, shape_color_RGB)
-        shape_type = 'sphere'
-        save_to_csv(obj_filepath, csv_filepath, shape_color_name, shape_type)
+        save_to_csv(obj_filepath, csv_filepath, shape_color_name, 'sphere')
+
+model_generator(100)
