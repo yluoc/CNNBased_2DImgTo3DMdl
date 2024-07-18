@@ -20,4 +20,4 @@ To predict the 3D model, using
 ```
 python model_prediction.py
 ```
-To view the .obj file generated, recommand using [https://3dviewer.net/] to read the .obj file.
+To view the generated .obj file, recommand using https://3dviewer.net/ to read the .obj file.
